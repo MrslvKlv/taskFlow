@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  TaskFlow — Production AWS infrastructure.
+  Deploys: Cognito, API Gateway (HTTP), Lambda, DynamoDB.
+  Frontend is hosted externally (e.g. protozoa.amazon.dev). $0/month at this scale.
+
+# ─── PARAMETERS ──────────────────────────────────────────────────────────────
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+
+  AppName:
+    Type: String
+    Default: taskflow
+
+  # Full URL of your hosted frontend page.
+  # Update this once you know your GUID, then re-run: sam deploy
+  ExternalFrontendUrl:
+    Type: String
+    Default: 'https://protozoa.amazon.dev/prototypes/YOUR_GUID_HERE'
+    Description: Full URL of the hosted frontend, e.g. https://protozoa.amazon.dev/prototypes/abc-123
+
+  # SAML / Corporate SSO (optional but recommended for Amazon internal tools)
+  # Leave empty to use Cognito's own login form (manual user creation).
+  # Set to your IdP metadata URL to enable Amazon corporate SSO — then re-run: sam deploy
+  SamlMetadataUrl:
+    Type: String
+    Default: ''
+    Description: SAML 2.0 metadata URL from your corporate IdP (e.g. Amazon Federate/Midway)
+
+# ─── CONDITIONS ─────────────────────────────────────────────────────────────
+Conditions:
+  # True when a SAML metadata URL has been provided — enables corporate SSO.
+  # False (default) — Cognito's own login is used, users created manually.
+  EnableSaml: !Not [!Equals [!Ref SamlMetadataUrl, '']]
+
+# ─── GLOBALS ─────────────────────────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 15
+    MemorySize: 256
+    Environment:
+      Variables:
+        TABLE_NAME:   !Ref TaskFlowTable
+        WORKSPACE_ID: !Sub '${AWS::AccountId}-${Environment}'
+
+# ─── RESOURCES ───────────────────────────────────────────────────────────────
+Resources:
+
+  # ── DYNAMODB TABLE ────────────────────────────────────────────────────────
+  # Single-table design. PK = "WORKSPACE#<accountId>-<env>", SK = "<TYPE>#<id>"
+  # BillingMode PAY_PER_REQUEST = on-demand. Stays within permanent free tier.
+  TaskFlowTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain   # Table survives stack deletion — your data is safe
+    Properties:
+      TableName: !Sub '${AppName}-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true   # Automatic backups — free
+      SSESpecification:
+        SSEEnabled: true   # Encryption at rest — free
+
+  # ── COGNITO USER POOL ─────────────────────────────────────────────────────
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AppName}-${Environment}'
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      AdminCreateUserConfig:
+        # When SAML is active, block direct Cognito sign-up — IdP is the only door in.
+        # When SAML is off, admin must create users manually (self-registration stays closed).
+        AllowAdminCreateUserOnly: true
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub '${AppName}-${Environment}-${AWS::AccountId}'
+      UserPoolId: !Ref UserPool
+
+  # ── SAML IDENTITY PROVIDER ───────────────────────────────────────────────
+  # Only created when SamlMetadataUrl parameter is non-empty.
+  CorporateIdP:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: EnableSaml
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: AmazonCorporate
+      ProviderType: SAML
+      ProviderDetails:
+        MetadataURL: !Ref SamlMetadataUrl
+        IDPSignout: true
+      AttributeMapping:
+        email: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'
+        name:  'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${AppName}-frontend'
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false    # Public client (SPA) — no secret
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      # SAML on → use corporate IdP only. SAML off → use Cognito login form.
+      SupportedIdentityProviders: !If
+        - EnableSaml
+        - [AmazonCorporate]
+        - [COGNITO]
+      CallbackURLs:
+        - !Ref ExternalFrontendUrl
+        - 'http://localhost:3000/'
+      LogoutURLs:
+        - !Ref ExternalFrontendUrl
+        - 'http://localhost:3000/'
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      AllowedOAuthFlowsUserPoolClient: true
+
+  # ── LAMBDA FUNCTION ───────────────────────────────────────────────────────
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AppName}-${Environment}-api'
+      Handler: handler.handler
+      CodeUri: backend/
+      Description: TaskFlow API — single handler, all routes
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:BatchWriteItem
+              Resource: !GetAtt TaskFlowTable.Arn
+      Events:
+        AnyRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+
+  # ── API GATEWAY HTTP API ──────────────────────────────────────────────────
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub '${AppName}-${Environment}'
+      Description: TaskFlow HTTP API
+      CorsConfiguration:
+        AllowOrigins:
+          - 'https://protozoa.amazon.dev'
+          - 'http://localhost:3000'
+        AllowHeaders: [Authorization, Content-Type]
+        AllowMethods: [GET, POST, PATCH, DELETE, OPTIONS]
+        MaxAge: 600
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              Audience:
+                - !Ref UserPoolClient
+              Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+
+  # ── CloudWatch Log Group ──────────────────────────────────────────────────
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppName}-${Environment}-api'
+      RetentionInDays: 30
+
+# ─── OUTPUTS ─────────────────────────────────────────────────────────────────
+# Copy these 3 values into AWS/frontend/app.js CONFIG after deploying.
+Outputs:
+  ApiUrl:
+    Description: "→ Paste into frontend/app.js CONFIG.apiBase"
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+
+  CognitoDomain:
+    Description: "→ Paste into frontend/app.js CONFIG.cognitoDomain"
+    Value: !Sub '${AppName}-${Environment}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com'
+
+  CognitoClientId:
+    Description: "→ Paste into frontend/app.js CONFIG.cognitoClientId"
+    Value: !Ref UserPoolClient
+
+  UserPoolId:
+    Description: Cognito User Pool ID — needed to create/invite users via CLI
+    Value: !Ref UserPool
+
+  DynamoDBTable:
+    Description: DynamoDB table name
+    Value: !Ref TaskFlowTable

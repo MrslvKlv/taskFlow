@@ -1,0 +1,52 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskFlow</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1>⬡ TaskFlow</h1>
+    <span>lean project manager</span>
+  </div>
+  <button class="overdue-nav-btn" id="overdue-nav-btn" onclick="showOverdue()">
+    <span class="overdue-nav-icon">⚑</span>
+    <span class="overdue-nav-label">Overdue</span>
+    <span class="overdue-nav-badge" id="overdue-count" style="display:none"></span>
+  </button>
+  <div class="sidebar-scroll" id="sidebar-scroll"></div>
+  <div class="sidebar-footer">
+    <button class="ghost-btn" onclick="showAddCategory()">＋ &nbsp;New Category</button>
+    <button class="ghost-btn" onclick="showAddProject(null)">＋ &nbsp;New Project</button>
+    <div class="sidebar-json-btns">
+      <button class="json-btn" onclick="exportJson()" title="Download workspace as JSON">&#8659; Save JSON</button>
+      <button class="json-btn" onclick="importJson()" title="Load workspace from JSON">&#8657; Load JSON</button>
+      <input type="file" id="json-file-input" accept=".json" style="display:none" onchange="handleJsonFile(this)">
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <div id="main-inner" style="display:flex;flex-direction:column;height:100%"></div>
+</div>
+
+<aside class="task-panel" id="task-panel">
+  <div class="panel-header">
+    <button class="panel-close" onclick="closePanel()">×</button>
+    <input class="panel-title-input" id="panel-title" placeholder="Task title…" onblur="updateTaskTitle(this.value)">
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</aside>
+
+<div class="modal-overlay" id="modal" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

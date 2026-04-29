@@ -1,0 +1,18 @@
+{
+  "name": "taskflow-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "TaskFlow Lambda backend for AWS production deployment",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb":    "^3.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  },
+  "scripts": {
+    "build": "esbuild handler.js --bundle --platform=node --target=node20 --outfile=dist/handler.js --format=esm",
+    "deploy": "sam build && sam deploy"
+  }
+}

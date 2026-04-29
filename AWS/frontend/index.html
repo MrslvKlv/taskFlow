@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskFlow</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Auth overlay — shown when user is not authenticated -->
+<div class="auth-overlay" id="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">⬡ TaskFlow</div>
+    <p class="auth-subtitle">Sign in with your organization account to continue</p>
+    <button class="btn-primary auth-btn" id="auth-signin-btn">Sign in with SSO</button>
+    <p class="auth-note">Access is managed by your AWS Cognito organization identity.</p>
+  </div>
+</div>
+
+<!-- Loading overlay — shown while fetching initial state -->
+<div class="auth-overlay" id="loading-overlay" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">⬡ TaskFlow</div>
+    <p class="auth-subtitle">Loading workspace…</p>
+    <div class="loading-spinner"></div>
+  </div>
+</div>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1>⬡ TaskFlow</h1>
+    <span>lean project manager</span>
+  </div>
+  <button class="overdue-nav-btn" id="overdue-nav-btn" onclick="showOverdue()">
+    <span class="overdue-nav-icon">⚑</span>
+    <span class="overdue-nav-label">Overdue</span>
+    <span class="overdue-nav-badge" id="overdue-count" style="display:none"></span>
+  </button>
+  <div class="sidebar-scroll" id="sidebar-scroll"></div>
+  <div class="sidebar-footer">
+    <button class="ghost-btn" onclick="showAddCategory()">＋ &nbsp;New Category</button>
+    <button class="ghost-btn" onclick="showAddProject(null)">＋ &nbsp;New Project</button>
+    <button class="ghost-btn signout-btn" onclick="logout()">↩ &nbsp;Sign Out (<span id="user-email"></span>)</button>
+  </div>
+</aside>
+
+<div class="main">
+  <div id="main-inner" style="display:flex;flex-direction:column;height:100%"></div>
+</div>
+
+<aside class="task-panel" id="task-panel">
+  <div class="panel-header">
+    <button class="panel-close" onclick="closePanel()">×</button>
+    <input class="panel-title-input" id="panel-title" placeholder="Task title…" onblur="updateTaskTitle(this.value)">
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</aside>
+
+<div class="modal-overlay" id="modal" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+﻿-- TaskFlow DynamoDB Table Design (reference only)
+-- The table is created automatically by CloudFormation / SAM on first sam deploy.
+-- You do NOT need to run any SQL or seed any data manually.
+--
+-- Table name : taskflow-{env}   (e.g. taskflow-prod)
+-- Billing    : PAY_PER_REQUEST  (on-demand, stays within free tier at this scale)
+-- Keys       : PK (String) + SK (String)
+--
+-- ─── ACCESS PATTERN ──────────────────────────────────────────────────────────
+-- getState : Query(PK = "WORKSPACE#<accountId>-<env>")  → returns ALL items in one call
+-- mutations: PutItem / UpdateItem / DeleteItem with known PK + SK
+--
+-- ─── ITEM SHAPES ─────────────────────────────────────────────────────────────
+--
+--  Category  │ PK = WORKSPACE#<wid>  │ SK = CAT#<id>
+--            │ id, name, icon, collapsed
+--
+--  Project   │ PK = WORKSPACE#<wid>  │ SK = PROJ#<id>
+--            │ id, name, color, categoryId
+--
+--  Task      │ PK = WORKSPACE#<wid>  │ SK = TASK#<id>
+--            │ id, projectId, title, status, assignee, dueDate
+--
+--  Subtask   │ PK = WORKSPACE#<wid>  │ SK = SUB#<id>
+--            │ id, taskId, title, done
+--
+--  Comment   │ PK = WORKSPACE#<wid>  │ SK = COM#<id>
+--            │ id, taskId, author, text, ts (epoch ms)
+--
+-- ─── DELETE CASCADES ─────────────────────────────────────────────────────────
+-- Handled in Lambda (handler.js):
+--   deleteProject → deletes PROJ + all TASK items (projectId match) + SUB/COM for those tasks
+--   deleteTask    → deletes TASK + all SUB/COM items (taskId match)
+--   deleteSubtask → deletes single SUB item
